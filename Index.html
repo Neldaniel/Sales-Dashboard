@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sales Dashboard (Supabase + % per Rep/Vendor)</title>
+  <!-- Supabase JS client (v2 via CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0"></script>
+  <!-- CSV/Excel parsers -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --card: #fff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --brand: #2563eb;
+      --good: #16a34a;
+      --bad: #dc2626;
+      --line: #e5e7eb;
+      --shadow: 0 8px 24px rgba(15,23,42,.08);
+    }
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, Inter, Segoe UI, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.45;
+    }
+    header {
+      padding: 16px 20px;
+      background: linear-gradient(135deg, #0f172a, #1d4ed8);
+      color: #fff;
+    }
+    header h1 {
+      margin: 0 0 6px;
+      font-size: 18px;
+      font-weight: 700;
+    }
+    header p {
+      margin: 0;
+      font-size: 13px;
+      color: #dbeafe;
+    }
+
+    .wrap {
+      max-width: 1500px;
+      margin: 0 auto;
+      padding: 16px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .toolbar,
+    .grid,
+    .section,
+    .table-wrap {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+    }
+    .toolbar {
+      padding: 12px 16px;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .entry-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    label {
+      font-size: 12px;
+      color: var(--muted);
+      display: block;
+      margin-bottom: 4px;
+    }
+    input,
+    select,
+    button,
+    textarea {
+      width: 100%;
+      padding: 9px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font: inherit;
+      background: #fff;
+    }
+    button {
+      cursor: pointer;
+      background: var(--brand);
+      color: #fff;
+      border: none;
+      font-weight: 600;
+      font-size: 13px;
+    }
+    button.secondary {
+      background: #334155;
+    }
+    button.danger {
+      background: var(--bad);
+    }
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .actions button {
+      width: auto;
+      font-size: 13px;
+    }
+
+    .grid {
+      padding: 12px;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .card {
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      font-size: 13px;
+    }
+    .card .k {
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .card .v {
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .card.good {
+      border-color: #bbf7d0;
+    }
+    .card.bad {
+      border-color: #fecaca;
+    }
+
+    .charts {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .chartbox {
+      min-height: 280px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+
+    .section {
+      padding: 12px;
+    }
+    .section h2 {
+      margin: 0 0 8px;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    th,
+    td {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      font-size: 12px;
+      word-wrap: break-word;
+    }
+    th {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    .status-good {
+      color: var(--good);
+      font-weight: 700;
+    }
+    .status-bad {
+      color: var(--bad);
+      font-weight: 700;
+    }
+
+    .progress-container {
+      width: 100%;
+      height: 10px;
+      border-radius: 5px;
+      background: #edf2f7;
+      overflow: hidden;
+      margin-top: 6px;
+      position: relative;
+    }
+    .progress-bar {
+      height: 100%;
+      border-radius: 5px;
+      transition: width 0.4s ease;
+    }
+    .progress-bar.good { background: #16a34a; }
+    .progress-bar.bad  { background: #dc2626; }
+    .progress-text {
+      position: absolute;
+      right: 4px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 10px;
+      color: #0f172a;
+      font-weight: 600;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .tabs::-webkit-scrollbar {
+      display: none;
+    }
+    .tabs button {
+      flex-shrink: 0;
+      padding: 6px 10px;
+      border-radius: 24px;
+      border: none;
+      background: #e2e8f0;
+      color: #0f172a;
+      font-size: 13px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .tabs button.active {
+      background: var(--brand);
+      color: #fff;
+    }
+
+    .hidden { display: none; }
+
+    @media (min-width: 720px) {
+      .wrap {
+        padding: 20px;
+        gap: 18px;
+      }
+      .controls,
+      .entry-group,
+      .cards,
+      .charts,
+      .table-wrap {
+        grid-template-columns: 2fr 2fr;
+      }
+      header h1 {
+        font-size: 20px;
+      }
+      .card .v {
+        font-size: 18px;
+      }
+    }
+    @media (min-width: 1024px) {
+      .cards {
+        grid-template-columns: repeat(4, 1fr);
+      }
+      .charts {
+        grid-template-columns: 2fr 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Sales Dashboard (Supabase)</h1>
+  <p>Monthly & YTD % per rep/vendor; daily uploads synced to Supabase.</p>
+</header>
+<div class="wrap">
+  <!-- NAV TABS -->
+  <div class="toolbar">
+    <div class="tabs">
+      <button class="active" data-view="dashboard">Dashboard</button>
+      <button data-view="entry">Add Daily</button>
+      <button data-view="upload">Upload Daily Data</button>
+      <button data-view="data">Records</button>
+    </div>
+    <div class="controls">
+      <div>
+        <label>Month</label>
+        <select id="filterMonth"></select>
+      </div>
+      <div>
+        <label>Type</label>
+        <select id="filterType">
+          <option>All</option>
+          <option>rep</option>
+          <option>vendor</option>
+        </select>
+      </div>
+      <div>
+        <label>Rep / Vendor</label>
+        <select id="filterPerson"></select>
+      </div>
+      <div>
+        <label>Search</label>
+        <input id="searchBox" placeholder="Search records" />
+      </div>
+      <div>
+        <label>Actions</label>
+        <div class="actions">
+          <button id="resetFilters" class="secondary">Reset</button>
+          <button id="exportCsv" class="secondary">Export CSV</button>
+        </div>
+      </div>
+      <div>
+        <label>Data</label>
+        <div class="actions">
+          <button id="loadSample">Load Sample</button>
+          <button id="resetData" class="danger">Delete All</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DASHBOARD: KPIs + CHARTS -->
+  <div class="grid" id="dashboardView">
+    <div class="cards">
+      <div class="card" id="repCard">
+        <div class="k">Rep Monthly Sales</div>
+        <div class="v" id="repSales">0</div>
+        <div class="progress-container">
+          <div class="progress-bar" id="repPBar"></div>
+          <div class="progress-text" id="repPText"></div>
+        </div>
+      </div>
+      <div class="card" id="repTCard">
+        <div class="k">Rep Monthly Target</div>
+        <div class="v" id="repTarget">0</div>
+        <div class="progress-container">
+          <div class="progress-bar" id="repTBar"></div>
+          <div class="progress-text" id="repTText"></div>
+        </div>
+      </div>
+      <div class="card" id="venCard">
+        <div class="k">Vendor Monthly Sales</div>
+        <div class="v" id="venSales">0</div>
+        <div class="progress-container">
+          <div class="progress-bar" id="venPBar"></div>
+          <div class="progress-text" id="venPText"></div>
+        </div>
+      </div>
+      <div class="card" id="venTCard">
+        <div class="k">Vendor Monthly Target</div>
+        <div class="v" id="venTarget">0</div>
+        <div class="progress-container">
+          <div class="progress-bar" id="venTBar"></div>
+          <div class="progress-text" id="venTText"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="charts">
+      <div class="chartbox"><canvas id="repDailyChart"></canvas></div>
+      <div class="chartbox"><canvas id="venDailyChart"></canvas></div>
+    </div>
+
+    <div class="charts">
+      <div class="chartbox"><canvas id="repTrend"></canvas></div>
+      <div class="chartbox"><canvas id="venTrend"></canvas></div>
+    </div>
+  </div>
+
+  <!-- MANUAL DAILY ENTRY -->
+  <div class="section hidden" id="entryView">
+    <h2>Manual Daily Entry</h2>
+    <div class="entry-group">
+      <div>
+        <label>Entry Type</label>
+        <select id="entryType">
+          <option>rep</option>
+          <option>vendor</option>
+        </select>
+      </div>
+      <div>
+        <label>Rep / Vendor</label>
+        <input id="personName" placeholder="e.g. A. Mokoena" />
+      </div>
+      <div>
+        <label>Date</label>
+        <input id="entryDate" type="date" />
+      </div>
+      <div>
+        <label>Daily Sales</label>
+        <input id="salesAmount" type="number" min="0" step="0.01" />
+      </div>
+    </div>
+    <div class="actions" style="margin-top:10px">
+      <button id="addRecord">Add Record</button>
+    </div>
+  </div>
+
+  <!-- FILE UPLOAD -->
+  <div class="section hidden" id="uploadView">
+    <h2>Upload Daily Sales</h2>
+    <p class="hint">
+      Columns: <code>type, rep/vendor, date, daily_sales</code> and/or <code>target</code>.<br>
+      Type = <code>rep</code> or <code>vendor</code>. Target is stored per month; sales are cumulative.
+    </p>
+    <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" />
+    <div class="actions" style="margin-top:10px">
+      <button id="processFile">Process Daily File</button>
+    </div>
+    <div class="preview" id="previewWrap" style="margin-top:10px"></div>
+  </div>
+
+  <!-- RECORDS TABLE -->
+  <div class="table-wrap section hidden" id="dataView">
+    <h2>Records</h2>
+    <div class="preview">
+      <table id="dataTable">
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Rep / Vendor</th>
+            <th>Date</th>
+            <th>Sales</th>
+            <th>Month %</th>
+            <th>YTD %</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- REPS & VENDORS TABLES WITH MONTH/YTD % -->
+  <div class="section">
+    <h2>Monthly & YTD Achievement %</h2>
+    <div class="split">
+      <div>
+        <table id="repTable">
+          <thead>
+            <tr>
+              <th>Rep</th>
+              <th>Monthly Sales</th>
+              <th>Monthly Target</th>
+              <th>Monthly %</th>
+              <th>YTD Sales</th>
+              <th>YTD Target</th>
+              <th>YTD %</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div>
+        <table id="venTable">
+          <thead>
+            <tr>
+              <th>Vendor</th>
+              <th>Monthly Sales</th>
+              <th>Monthly Target</th>
+              <th>Monthly %</th>
+              <th>YTD Sales</th>
+              <th>YTD Target</th>
+              <th>YTD %</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="hint">Data is stored in Supabase (no local DB / localStorage needed).</div>
+</div>
+
+<script>
+/* --- 1. Supabase config (replace with yours) --- */
+const SUPABASE_URL   = 'https://ddaukicrbbrvvryqjmfx.supabase.co';
+const SUPABASE_KEY   = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRkYXVraWNyYmJydnZyeXFqbWZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwNTE4MDEsImV4cCI6MjA5MzYyNzgwMX0.Ji2fht2u9yYNbvTMro-0rU0WMSTm8JJ_w2LU_pTTCdk';
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+/* ---------------------------------------------- */
+
+/* --- 2. Local data model --- */
+let sales  = []; // { type, name, date, sales_amount }
+let targets = {}; // { 'rep:A. Mokoena:2026-04' => { target } }
+
+const $ = id => document.getElementById(id);
+const money = v => new Intl.NumberFormat(undefined, {maximumFractionDigits:0}).format(v||0);
+const pct = (a,b) => b ? ((a/b)*100).toFixed(1)+'%' : '0.0%';
+const norm = s => (s??'').toString().trim();
+const dateKey = s => {
+  const d = new Date(s);
+  if(!isNaN(d)) return d.toISOString().slice(0,10);
+  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  return m ? `${m[1]}
