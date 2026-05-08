@@ -1,513 +1,213 @@
-<!DOCTYPE html>
+import os, textwrap, json, re
+# Build a complete, self-contained HTML file with fixed buttons and separate rep/vendor data models.
+html = r'''<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sales Dashboard (Supabase + % per Rep/Vendor)</title>
-  <!-- Supabase JS client (v2 via CDN) -->
+  <title>Sales Dashboard - Reps & Vendors</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0"></script>
-  <!-- CSV/Excel parsers -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
-    :root {
-      --bg: #f6f8fb;
-      --card: #fff;
-      --text: #1f2937;
-      --muted: #6b7280;
-      --brand: #2563eb;
-      --good: #16a34a;
-      --bad: #dc2626;
-      --line: #e5e7eb;
-      --shadow: 0 8px 24px rgba(15,23,42,.08);
-    }
-    *, *::before, *::after {
-      box-sizing: border-box;
-    }
-    body {
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, Inter, Segoe UI, Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      -webkit-font-smoothing: antialiased;
-      line-height: 1.45;
-    }
-    header {
-      padding: 16px 20px;
-      background: linear-gradient(135deg, #0f172a, #1d4ed8);
-      color: #fff;
-    }
-    header h1 {
-      margin: 0 0 6px;
-      font-size: 18px;
-      font-weight: 700;
-    }
-    header p {
-      margin: 0;
-      font-size: 13px;
-      color: #dbeafe;
-    }
-
-    .wrap {
-      max-width: 1500px;
-      margin: 0 auto;
-      padding: 16px;
-      display: grid;
-      gap: 16px;
-    }
-
-    .toolbar,
-    .grid,
-    .section,
-    .table-wrap {
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      box-shadow: var(--shadow);
-    }
-    .toolbar {
-      padding: 12px 16px;
-    }
-    .controls {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-    }
-    .entry-group {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
-    label {
-      font-size: 12px;
-      color: var(--muted);
-      display: block;
-      margin-bottom: 4px;
-    }
-    input,
-    select,
-    button,
-    textarea {
-      width: 100%;
-      padding: 9px 12px;
-      border: 1px solid #cbd5e1;
-      border-radius: 8px;
-      font: inherit;
-      background: #fff;
-    }
-    button {
-      cursor: pointer;
-      background: var(--brand);
-      color: #fff;
-      border: none;
-      font-weight: 600;
-      font-size: 13px;
-    }
-    button.secondary {
-      background: #334155;
-    }
-    button.danger {
-      background: var(--bad);
-    }
-    .actions {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    .actions button {
-      width: auto;
-      font-size: 13px;
-    }
-
-    .grid {
-      padding: 12px;
-    }
-    .cards {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
-    .card {
-      padding: 10px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: #fff;
-      font-size: 13px;
-    }
-    .card .k {
-      font-size: 11px;
-      color: var(--muted);
-    }
-    .card .v {
-      font-size: 16px;
-      font-weight: 700;
-    }
-    .card.good {
-      border-color: #bbf7d0;
-    }
-    .card.bad {
-      border-color: #fecaca;
-    }
-
-    .charts {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 12px;
-      margin-top: 12px;
-    }
-    .chartbox {
-      min-height: 280px;
-      padding: 10px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-    }
-
-    .section {
-      padding: 12px;
-    }
-    .section h2 {
-      margin: 0 0 8px;
-      font-size: 15px;
-      font-weight: 600;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      table-layout: fixed;
-    }
-    th,
-    td {
-      padding: 8px 10px;
-      border-bottom: 1px solid var(--line);
-      text-align: left;
-      font-size: 12px;
-      word-wrap: break-word;
-    }
-    th {
-      color: var(--muted);
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: .04em;
-    }
-
-    .status-good {
-      color: var(--good);
-      font-weight: 700;
-    }
-    .status-bad {
-      color: var(--bad);
-      font-weight: 700;
-    }
-
-    .progress-container {
-      width: 100%;
-      height: 10px;
-      border-radius: 5px;
-      background: #edf2f7;
-      overflow: hidden;
-      margin-top: 6px;
-      position: relative;
-    }
-    .progress-bar {
-      height: 100%;
-      border-radius: 5px;
-      transition: width 0.4s ease;
-    }
-    .progress-bar.good { background: #16a34a; }
-    .progress-bar.bad  { background: #dc2626; }
-    .progress-text {
-      position: absolute;
-      right: 4px;
-      top: 50%;
-      transform: translateY(-50%);
-      font-size: 10px;
-      color: #0f172a;
-      font-weight: 600;
-    }
-
-    .tabs {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-      margin-bottom: 8px;
-      overflow-x: auto;
-      scrollbar-width: none;
-    }
-    .tabs::-webkit-scrollbar {
-      display: none;
-    }
-    .tabs button {
-      flex-shrink: 0;
-      padding: 6px 10px;
-      border-radius: 24px;
-      border: none;
-      background: #e2e8f0;
-      color: #0f172a;
-      font-size: 13px;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    .tabs button.active {
-      background: var(--brand);
-      color: #fff;
-    }
-
-    .hidden { display: none; }
-
-    @media (min-width: 720px) {
-      .wrap {
-        padding: 20px;
-        gap: 18px;
-      }
-      .controls,
-      .entry-group,
-      .cards,
-      .charts,
-      .table-wrap {
-        grid-template-columns: 2fr 2fr;
-      }
-      header h1 {
-        font-size: 20px;
-      }
-      .card .v {
-        font-size: 18px;
-      }
-    }
-    @media (min-width: 1024px) {
-      .cards {
-        grid-template-columns: repeat(4, 1fr);
-      }
-      .charts {
-        grid-template-columns: 2fr 1fr;
-      }
-    }
+    :root{--bg:#f6f8fb;--card:#fff;--text:#1f2937;--muted:#6b7280;--brand:#2563eb;--good:#16a34a;--bad:#dc2626;--line:#e5e7eb;--shadow:0 8px 24px rgba(15,23,42,.08)}
+    *{box-sizing:border-box} body{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text)}
+    header{padding:16px 20px;background:linear-gradient(135deg,#0f172a,#1d4ed8);color:#fff}
+    header h1{margin:0 0 6px;font-size:20px} header p{margin:0;color:#dbeafe;font-size:13px}
+    .wrap{max-width:1600px;margin:0 auto;padding:16px;display:grid;gap:16px}
+    .panel,.section,.table-wrap,.toolbar{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
+    .toolbar{padding:14px;display:grid;gap:12px}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap}.tabs button{width:auto;background:#e2e8f0;color:#0f172a;border:none;padding:8px 12px;border-radius:999px;cursor:pointer}.tabs button.active{background:var(--brand);color:#fff}
+    .controls{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}
+    label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
+    input,select,button{width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;font:inherit;background:#fff}
+    button{cursor:pointer;background:var(--brand);color:#fff;border:none;font-weight:600}
+    button.secondary{background:#334155} button.danger{background:var(--bad)}
+    .actions{display:flex;gap:8px;flex-wrap:wrap}.actions button{width:auto}
+    .grid{padding:14px}.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.card{padding:14px;border:1px solid var(--line);border-radius:12px;background:#fff}.card.good{border-color:#bbf7d0}.card.bad{border-color:#fecaca}.k{font-size:12px;color:var(--muted)}.v{font-size:24px;font-weight:800;margin-top:6px}
+    .progress-container{width:100%;height:12px;border-radius:999px;background:#edf2f7;overflow:hidden;margin-top:8px;position:relative}.progress-bar{height:100%;transition:width .25s ease}.progress-text{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:11px;font-weight:700;color:#0f172a}.goodbar{background:var(--good)} .badbar{background:var(--bad)}
+    .charts{display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-top:14px}.chartbox{min-height:320px;padding:10px;border:1px solid var(--line);border-radius:12px}
+    .section,.table-wrap{padding:14px}.section h2,.table-wrap h2{margin:0 0 10px;font-size:18px}
+    .split{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    table{width:100%;border-collapse:collapse} th,td{padding:9px 8px;border-bottom:1px solid var(--line);text-align:left;font-size:13px;vertical-align:top} th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+    .status-good{color:var(--good);font-weight:700}.status-bad{color:var(--bad);font-weight:700}.hint{font-size:12px;color:var(--muted)} .hidden{display:none}
+    .entry-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+    .mini-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+    .small{font-size:12px}
+    @media (max-width:1100px){.controls,.cards,.charts,.split,.entry-grid{grid-template-columns:1fr 1fr}.charts{grid-template-columns:1fr}.controls{grid-template-columns:repeat(2,1fr)}}
+    @media (max-width:720px){.controls,.cards,.charts,.split,.entry-grid,.mini-grid{grid-template-columns:1fr}.v{font-size:20px}.chartbox{min-height:280px}}
   </style>
 </head>
 <body>
 <header>
-  <h1>Sales Dashboard (Supabase)</h1>
-  <p>Monthly & YTD % per rep/vendor; daily uploads synced to Supabase.</p>
+  <h1>Sales Dashboard: Separate Rep & Vendor Tracking</h1>
+  <p>Manual entry, CSV/XLSX upload, Supabase sync, monthly and YTD progress, mobile-friendly.</p>
 </header>
 <div class="wrap">
-  <!-- NAV TABS -->
   <div class="toolbar">
     <div class="tabs">
       <button class="active" data-view="dashboard">Dashboard</button>
-      <button data-view="entry">Add Daily</button>
-      <button data-view="upload">Upload Daily Data</button>
-      <button data-view="data">Records</button>
+      <button data-view="entry">Manual Entry</button>
+      <button data-view="targets">Targets</button>
+      <button data-view="upload">Upload</button>
+      <button data-view="records">Records</button>
     </div>
     <div class="controls">
-      <div>
-        <label>Month</label>
-        <select id="filterMonth"></select>
-      </div>
-      <div>
-        <label>Type</label>
-        <select id="filterType">
-          <option>All</option>
-          <option>rep</option>
-          <option>vendor</option>
-        </select>
-      </div>
-      <div>
-        <label>Rep / Vendor</label>
-        <select id="filterPerson"></select>
-      </div>
-      <div>
-        <label>Search</label>
-        <input id="searchBox" placeholder="Search records" />
-      </div>
-      <div>
-        <label>Actions</label>
-        <div class="actions">
-          <button id="resetFilters" class="secondary">Reset</button>
-          <button id="exportCsv" class="secondary">Export CSV</button>
-        </div>
-      </div>
-      <div>
-        <label>Data</label>
-        <div class="actions">
-          <button id="loadSample">Load Sample</button>
-          <button id="resetData" class="danger">Delete All</button>
-        </div>
-      </div>
+      <div><label>Month</label><select id="filterMonth"></select></div>
+      <div><label>Type</label><select id="filterType"><option>All</option><option>rep</option><option>vendor</option></select></div>
+      <div><label>Name</label><select id="filterName"></select></div>
+      <div><label>Search</label><input id="searchBox" placeholder="Search" /></div>
+      <div><label>Actions</label><div class="actions"><button id="resetFilters" class="secondary">Reset Filters</button><button id="exportCsv" class="secondary">Export CSV</button></div></div>
+      <div><label>Dataset</label><div class="actions"><button id="loadSample">Load Sample</button><button id="resetAll" class="danger">Reset All</button></div></div>
     </div>
   </div>
 
-  <!-- DASHBOARD: KPIs + CHARTS -->
-  <div class="grid" id="dashboardView">
+  <div class="grid panel" id="dashboardView">
     <div class="cards">
-      <div class="card" id="repCard">
-        <div class="k">Rep Monthly Sales</div>
-        <div class="v" id="repSales">0</div>
-        <div class="progress-container">
-          <div class="progress-bar" id="repPBar"></div>
-          <div class="progress-text" id="repPText"></div>
-        </div>
-      </div>
-      <div class="card" id="repTCard">
-        <div class="k">Rep Monthly Target</div>
-        <div class="v" id="repTarget">0</div>
-        <div class="progress-container">
-          <div class="progress-bar" id="repTBar"></div>
-          <div class="progress-text" id="repTText"></div>
-        </div>
-      </div>
-      <div class="card" id="venCard">
-        <div class="k">Vendor Monthly Sales</div>
-        <div class="v" id="venSales">0</div>
-        <div class="progress-container">
-          <div class="progress-bar" id="venPBar"></div>
-          <div class="progress-text" id="venPText"></div>
-        </div>
-      </div>
-      <div class="card" id="venTCard">
-        <div class="k">Vendor Monthly Target</div>
-        <div class="v" id="venTarget">0</div>
-        <div class="progress-container">
-          <div class="progress-bar" id="venTBar"></div>
-          <div class="progress-text" id="venTText"></div>
-        </div>
-      </div>
+      <div class="card" id="repKpiCard"><div class="k">Rep Monthly Achievement</div><div class="v" id="repPct">0%</div><div class="progress-container"><div id="repPctBar" class="progress-bar badbar" style="width:0%"></div><div id="repPctText" class="progress-text">0%</div></div><div class="small" id="repShortfall">Shortfall: 0</div></div>
+      <div class="card" id="venKpiCard"><div class="k">Vendor Monthly Achievement</div><div class="v" id="venPct">0%</div><div class="progress-container"><div id="venPctBar" class="progress-bar badbar" style="width:0%"></div><div id="venPctText" class="progress-text">0%</div></div><div class="small" id="venShortfall">Shortfall: 0</div></div>
+      <div class="card"><div class="k">Rep YTD Achievement</div><div class="v" id="repYtdPct">0%</div><div class="progress-container"><div id="repYtdBar" class="progress-bar badbar" style="width:0%"></div><div id="repYtdText" class="progress-text">0%</div></div><div class="small" id="repYtdShortfall">Shortfall: 0</div></div>
+      <div class="card"><div class="k">Vendor YTD Achievement</div><div class="v" id="venYtdPct">0%</div><div class="progress-container"><div id="venYtdBar" class="progress-bar badbar" style="width:0%"></div><div id="venYtdText" class="progress-text">0%</div></div><div class="small" id="venYtdShortfall">Shortfall: 0</div></div>
     </div>
-
     <div class="charts">
-      <div class="chartbox"><canvas id="repDailyChart"></canvas></div>
-      <div class="chartbox"><canvas id="venDailyChart"></canvas></div>
+      <div class="chartbox"><canvas id="repMonthlyChart"></canvas></div>
+      <div class="chartbox"><canvas id="venMonthlyChart"></canvas></div>
     </div>
-
     <div class="charts">
-      <div class="chartbox"><canvas id="repTrend"></canvas></div>
-      <div class="chartbox"><canvas id="venTrend"></canvas></div>
+      <div class="chartbox"><canvas id="repYtdChart"></canvas></div>
+      <div class="chartbox"><canvas id="venYtdChart"></canvas></div>
     </div>
   </div>
 
-  <!-- MANUAL DAILY ENTRY -->
   <div class="section hidden" id="entryView">
-    <h2>Manual Daily Entry</h2>
-    <div class="entry-group">
-      <div>
-        <label>Entry Type</label>
-        <select id="entryType">
-          <option>rep</option>
-          <option>vendor</option>
-        </select>
-      </div>
-      <div>
-        <label>Rep / Vendor</label>
-        <input id="personName" placeholder="e.g. A. Mokoena" />
-      </div>
-      <div>
-        <label>Date</label>
-        <input id="entryDate" type="date" />
-      </div>
-      <div>
-        <label>Daily Sales</label>
-        <input id="salesAmount" type="number" min="0" step="0.01" />
-      </div>
+    <h2>Manual Entry</h2>
+    <div class="entry-grid">
+      <div><label>Category</label><select id="entryType"><option value="rep">rep</option><option value="vendor">vendor</option></select></div>
+      <div><label>Name</label><input id="entryName" placeholder="Enter rep or vendor name" /></div>
+      <div><label>Date</label><input id="entryDate" type="date" /></div>
+      <div><label>Daily Sales</label><input id="entrySales" type="number" min="0" step="0.01" /></div>
+      <div><label>Monthly Target</label><input id="entryTarget" type="number" min="0" step="0.01" /></div>
     </div>
-    <div class="actions" style="margin-top:10px">
-      <button id="addRecord">Add Record</button>
-    </div>
+    <div class="actions" style="margin-top:10px"><button id="addRecordBtn">Add / Update</button></div>
+    <div class="hint" style="margin-top:8px">Manual entry creates separate records for reps and vendors. If the same name/date already exists, it updates it.</div>
   </div>
 
-  <!-- FILE UPLOAD -->
+  <div class="section hidden" id="targetsView">
+    <h2>Targets Only</h2>
+    <div class="entry-grid">
+      <div><label>Category</label><select id="targetType"><option value="rep">rep</option><option value="vendor">vendor</option></select></div>
+      <div><label>Name</label><input id="targetName" placeholder="Enter rep or vendor name" /></div>
+      <div><label>Month</label><input id="targetMonth" placeholder="YYYY-MM" /></div>
+      <div><label>Target Amount</label><input id="targetValue" type="number" min="0" step="0.01" /></div>
+      <div style="display:flex;align-items:end"><button id="saveTargetBtn">Save Target</button></div>
+    </div>
+    <div class="hint" style="margin-top:8px">Use this when you want to load targets separately from daily sales.</div>
+  </div>
+
   <div class="section hidden" id="uploadView">
-    <h2>Upload Daily Sales</h2>
-    <p class="hint">
-      Columns: <code>type, rep/vendor, date, daily_sales</code> and/or <code>target</code>.<br>
-      Type = <code>rep</code> or <code>vendor</code>. Target is stored per month; sales are cumulative.
-    </p>
+    <h2>Upload CSV / Excel</h2>
+    <div class="hint">Supported columns: type, name, date, sales_amount, target, month. For targets use a row with month and target.</div>
     <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" />
-    <div class="actions" style="margin-top:10px">
-      <button id="processFile">Process Daily File</button>
-    </div>
-    <div class="preview" id="previewWrap" style="margin-top:10px"></div>
+    <div class="actions" style="margin-top:10px"><button id="processFileBtn">Process File</button></div>
+    <div id="previewWrap" class="hint" style="margin-top:10px"></div>
   </div>
 
-  <!-- RECORDS TABLE -->
-  <div class="table-wrap section hidden" id="dataView">
+  <div class="table-wrap hidden" id="recordsView">
     <h2>Records</h2>
-    <div class="preview">
-      <table id="dataTable">
-        <thead>
-          <tr>
-            <th>Type</th>
-            <th>Rep / Vendor</th>
-            <th>Date</th>
-            <th>Sales</th>
-            <th>Month %</th>
-            <th>YTD %</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- REPS & VENDORS TABLES WITH MONTH/YTD % -->
-  <div class="section">
-    <h2>Monthly & YTD Achievement %</h2>
     <div class="split">
       <div>
-        <table id="repTable">
-          <thead>
-            <tr>
-              <th>Rep</th>
-              <th>Monthly Sales</th>
-              <th>Monthly Target</th>
-              <th>Monthly %</th>
-              <th>YTD Sales</th>
-              <th>YTD Target</th>
-              <th>YTD %</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <h3 style="margin:0 0 8px">Rep Sales</h3>
+        <div style="overflow:auto"><table id="repRecordsTable"><thead><tr><th>Name</th><th>Date</th><th>Sales</th><th>Target</th><th>Month %</th><th>YTD %</th><th>Action</th></tr></thead><tbody></tbody></table></div>
       </div>
       <div>
-        <table id="venTable">
-          <thead>
-            <tr>
-              <th>Vendor</th>
-              <th>Monthly Sales</th>
-              <th>Monthly Target</th>
-              <th>Monthly %</th>
-              <th>YTD Sales</th>
-              <th>YTD Target</th>
-              <th>YTD %</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <h3 style="margin:0 0 8px">Vendor Sales</h3>
+        <div style="overflow:auto"><table id="venRecordsTable"><thead><tr><th>Name</th><th>Date</th><th>Sales</th><th>Target</th><th>Month %</th><th>YTD %</th><th>Action</th></tr></thead><tbody></tbody></table></div>
       </div>
     </div>
   </div>
 
-  <div class="hint">Data is stored in Supabase (no local DB / localStorage needed).</div>
+  <div class="section">
+    <h2>Monthly Performance Tables</h2>
+    <div class="split">
+      <div>
+        <table id="repSummaryTable"><thead><tr><th>Rep</th><th>Month Sales</th><th>Month Target</th><th>%</th><th>YTD Sales</th><th>YTD Target</th><th>YTD %</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div>
+        <table id="venSummaryTable"><thead><tr><th>Vendor</th><th>Month Sales</th><th>Month Target</th><th>%</th><th>YTD Sales</th><th>YTD Target</th><th>YTD %</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+  </div>
 </div>
-
 <script>
-/* --- 1. Supabase config (replace with yours) --- */
-const SUPABASE_URL   = 'https://ddaukicrbbrvvryqjmfx.supabase.co';
-const SUPABASE_KEY   = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRkYXVraWNyYmJydnZyeXFqbWZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwNTE4MDEsImV4cCI6MjA5MzYyNzgwMX0.Ji2fht2u9yYNbvTMro-0rU0WMSTm8JJ_w2LU_pTTCdk';
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-/* ---------------------------------------------- */
+const SUPABASE_URL='https://ddaukicrbbrvvryqjmfx.supabase.co';
+const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRkYXVraWNyYmJydnZyeXFqbWZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwNTE4MDEsImV4cCI6MjA5MzYyNzgwMX0.Ji2fht2u9yYNbvTMro-0rU0WMSTm8JJ_w2LU_pTTCdk';
+const supabase = window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const $=id=>document.getElementById(id);
+const money=v=>new Intl.NumberFormat(undefined,{maximumFractionDigits:0}).format(Number(v||0));
+const pct=(a,b)=>b?((a/b)*100).toFixed(1)+'%':'0.0%';
+const monthKey=d=>String(d||'').slice(0,7);
+const norm=s=>(s??'').toString().trim();
+let repSales=[],venSales=[],repTargets=[],venTargets=[],repChart,venChart,repYtdChart,venYtdChart;
+const state={view:'dashboard'};
+function setProgress(bar,text,val){const n=Math.max(0,Math.min(100,Number(val)||0));bar.style.width=n+'%';bar.className='progress-bar '+(n>=100?'goodbar':'badbar');text.textContent=n.toFixed(1)+'%';}
+function unique(arr){return [...new Set(arr.filter(Boolean))].sort((a,b)=>a.localeCompare(b));}
+function byNameMonth(list,name,month){return list.find(x=>x.name===name&&x.month===month);}
+function toRow(r){return {id:r.id,type:r.type,name:r.name,date:r.date,sales_amount:Number(r.sales_amount||0),month:r.month||monthKey(r.date),target:Number(r.target||0)};}
+async function loadAll(){
+  const [rs,vs,rt,vt]=await Promise.all([
+    supabase.from('rep_sales').select('*').order('date'),
+    supabase.from('vendor_sales').select('*').order('date'),
+    supabase.from('rep_targets').select('*').order('month'),
+    supabase.from('vendor_targets').select('*').order('month')
+  ]);
+  if(rs.error) throw rs.error; if(vs.error) throw vs.error; if(rt.error) throw rt.error; if(vt.error) throw vt.error;
+  repSales=(rs.data||[]).map(toRow); venSales=(vs.data||[]).map(toRow); repTargets=(rt.data||[]).map(toRow); venTargets=(vt.data||[]).map(toRow);
+  populateFilters(); renderAll();
+}
+function populateFilters(){
+  const months=unique([...repSales.map(r=>monthKey(r.date)),...venSales.map(r=>monthKey(r.date)),...repTargets.map(r=>r.month),...venTargets.map(r=>r.month)]);
+  const names=unique([...repSales.map(r=>r.name),...venSales.map(r=>r.name),...repTargets.map(r=>r.name),...venTargets.map(r=>r.name)]);
+  $('filterMonth').innerHTML=['<option value="All">All</option>',...months.map(m=>`<option value="${m}">${m}</option>`)].join('');
+  $('filterName').innerHTML=['<option value="All">All</option>',...names.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`)].join('');
+}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+function currentMonth(){const v=$('filterMonth').value; if(v && v!=='All') return v; return monthKey(new Date().toISOString());}
+function filtered(list,type){const m=$('filterMonth').value,fType=$('filterType').value,fName=$('filterName').value,q=$('searchBox').value.toLowerCase().trim(); return list.filter(r=>{const okMonth=(m==='All'||monthKey(r.date||r.month)===m||r.month===m); const okType=(fType==='All'||fType===r.type); const okName=(fName==='All'||r.name===fName); const okQ=!q||JSON.stringify(r).toLowerCase().includes(q); return okMonth&&okType&&okName&&okQ;});}
+function aggSales(list,targets){const map=new Map(); for(const r of list){const k=r.name; if(!map.has(k)) map.set(k,{name:k,sales:0,monthSales:0,ytdSales:0,monthTarget:0,ytdTarget:0}); const o=map.get(k); o.sales+=r.sales_amount;} return map;}
+function calcSummary(salesList,targetList){const m=currentMonth(); const year=m.slice(0,4); const names=unique([...salesList.map(r=>r.name),...targetList.map(r=>r.name)]); return names.map(name=>{const monthSales=salesList.filter(r=>r.name===name&&monthKey(r.date)===m).reduce((a,b)=>a+Number(b.sales_amount||0),0); const ytdSales=salesList.filter(r=>r.name===name&&String(r.date).slice(0,4)===year).reduce((a,b)=>a+Number(b.sales_amount||0),0); const monthTarget=targetList.filter(r=>r.name===name&&r.month===m).reduce((a,b)=>a+Number(b.target||0),0); const ytdTarget=targetList.filter(r=>r.name===name&&r.month.slice(0,4)===year).reduce((a,b)=>a+Number(b.target||0),0); return {name,monthSales,monthTarget,ytdSales,ytdTarget,monthPct:pct(monthSales,monthTarget),ytdPct:pct(ytdSales,ytdTarget),monthShortfall:Math.max(0,monthTarget-monthSales),ytdShortfall:Math.max(0,ytdTarget-ytdSales)};}).sort((a,b)=>b.ytdSales-a.ytdSales); }
+function totals(list,targets){const m=currentMonth(),year=m.slice(0,4); const monthSales=list.filter(r=>monthKey(r.date)===m).reduce((a,b)=>a+Number(b.sales_amount||0),0); const ytdSales=list.filter(r=>String(r.date).slice(0,4)===year).reduce((a,b)=>a+Number(b.sales_amount||0),0); const monthTarget=targets.filter(r=>r.month===m).reduce((a,b)=>a+Number(b.target||0),0); const ytdTarget=targets.filter(r=>r.month.slice(0,4)===year).reduce((a,b)=>a+Number(b.target||0),0); return {monthSales,monthTarget,ytdSales,ytdTarget}; }
+function renderCards(){ const rep=totals(repSales,repTargets), ven=totals(venSales,venTargets); $('repPct').textContent=pct(rep.monthSales,rep.monthTarget); $('venPct').textContent=pct(ven.monthSales,ven.monthTarget); $('repYtdPct').textContent=pct(rep.ytdSales,rep.ytdTarget); $('venYtdPct').textContent=pct(ven.ytdSales,ven.ytdTarget); $('repShortfall').textContent='Shortfall: '+money(Math.max(0,rep.monthTarget-rep.monthSales)); $('venShortfall').textContent='Shortfall: '+money(Math.max(0,ven.monthTarget-ven.monthSales)); $('repYtdShortfall').textContent='Shortfall: '+money(Math.max(0,rep.ytdTarget-rep.ytdSales)); $('venYtdShortfall').textContent='Shortfall: '+money(Math.max(0,ven.ytdTarget-ven.ytdSales)); setProgress($('repPctBar'),$('repPctText'),rep.monthTarget?rep.monthSales/rep.monthTarget*100:0); setProgress($('venPctBar'),$('venPctText'),ven.monthTarget?ven.monthSales/ven.monthTarget*100:0); setProgress($('repYtdBar'),$('repYtdText'),rep.ytdTarget?rep.ytdSales/rep.ytdTarget*100:0); setProgress($('venYtdBar'),$('venYtdText'),ven.ytdTarget?ven.ytdSales/ven.ytdTarget*100:0); $('repKpiCard').className='card '+(rep.monthSales>=rep.monthTarget?'good':'bad'); $('venKpiCard').className='card '+(ven.monthSales>=ven.monthTarget?'good':'bad'); }
+function destroyCharts(){ [repChart,venChart,repYtdChart,venYtdChart].forEach(c=>c&&c.destroy()); }
+function renderCharts(){ destroyCharts(); const m=currentMonth(); const year=m.slice(0,4); const repM=calcSummary(repSales,repTargets), venM=calcSummary(venSales,venTargets); const repNames=repM.slice(0,8).map(x=>x.name), venNames=venM.slice(0,8).map(x=>x.name); const repMonthSales=repNames.map(n=>repSales.filter(r=>r.name===n&&monthKey(r.date)===m).reduce((a,b)=>a+Number(b.sales_amount||0),0)); const repMonthTargets=repNames.map(n=>repTargets.filter(r=>r.name===n&&r.month===m).reduce((a,b)=>a+Number(b.target||0),0)); const venMonthSales=venNames.map(n=>venSales.filter(r=>r.name===n&&monthKey(r.date)===m).reduce((a,b)=>a+Number(b.sales_amount||0),0)); const venMonthTargets=venNames.map(n=>venTargets.filter(r=>r.name===n&&r.month===m).reduce((a,b)=>a+Number(b.target||0),0)); const repYtdSales=repNames.map(n=>repSales.filter(r=>r.name===n&&String(r.date).slice(0,4)===year).reduce((a,b)=>a+Number(b.sales_amount||0),0)); const repYtdTargets=repNames.map(n=>repTargets.filter(r=>r.name===n&&r.month.slice(0,4)===year).reduce((a,b)=>a+Number(b.target||0),0)); const venYtdSales=venNames.map(n=>venSales.filter(r=>r.name===n&&String(r.date).slice(0,4)===year).reduce((a,b)=>a+Number(b.sales_amount||0),0)); const venYtdTargets=venNames.map(n=>venTargets.filter(r=>r.name===n&&r.month.slice(0,4)===year).reduce((a,b)=>a+Number(b.target||0),0)); repChart=new Chart($('repMonthlyChart'),{type:'bar',data:{labels:repNames,datasets:[{label:'Sales',data:repMonthSales,backgroundColor:'#2563eb'},{label:'Target',data:repMonthTargets,backgroundColor:'#94a3b8'}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true}}}}); venChart=new Chart($('venMonthlyChart'),{type:'bar',data:{labels:venNames,datasets:[{label:'Sales',data:venMonthSales,backgroundColor:'#16a34a'},{label:'Target',data:venMonthTargets,backgroundColor:'#94a3b8'}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true}}}}); repYtdChart=new Chart($('repYtdChart'),{type:'line',data:{labels:repNames,datasets:[{label:'YTD Sales',data:repYtdSales,borderColor:'#2563eb',backgroundColor:'rgba(37,99,235,.12)',fill:true},{label:'YTD Target',data:repYtdTargets,borderColor:'#dc2626',backgroundColor:'rgba(220,38,38,.08)',fill:false}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true}}}}); venYtdChart=new Chart($('venYtdChart'),{type:'line',data:{labels:venNames,datasets:[{label:'YTD Sales',data:venYtdSales,borderColor:'#16a34a',backgroundColor:'rgba(22,163,74,.12)',fill:true},{label:'YTD Target',data:venYtdTargets,borderColor:'#dc2626',backgroundColor:'rgba(220,38,38,.08)',fill:false}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true}}}}); }
+function renderSummaryTables(){ const m=currentMonth(); const rep=calcSummary(repSales,repTargets), ven=calcSummary(venSales,venTargets); $('repSummaryTable').querySelector('tbody').innerHTML=rep.map(x=>`<tr><td>${escapeHtml(x.name)}</td><td>${money(x.monthSales)}</td><td>${money(x.monthTarget)}</td><td class="${x.monthSales>=x.monthTarget?'status-good':'status-bad'}">${x.monthPct}</td><td>${money(x.ytdSales)}</td><td>${money(x.ytdTarget)}</td><td class="${x.ytdSales>=x.ytdTarget?'status-good':'status-bad'}">${x.ytdPct}</td></tr>`).join('')||'<tr><td colspan="7">No data</td></tr>'; $('venSummaryTable').querySelector('tbody').innerHTML=ven.map(x=>`<tr><td>${escapeHtml(x.name)}</td><td>${money(x.monthSales)}</td><td>${money(x.monthTarget)}</td><td class="${x.monthSales>=x.monthTarget?'status-good':'status-bad'}">${x.monthPct}</td><td>${money(x.ytdSales)}</td><td>${money(x.ytdTarget)}</td><td class="${x.ytdSales>=x.ytdTarget?'status-good':'status-bad'}">${x.ytdPct}</td></tr>`).join('')||'<tr><td colspan="7">No data</td></tr>'; }
+function renderRecords(){ const repRows=filtered(repSales), venRows=filtered(venSales); $('repRecordsTable').querySelector('tbody').innerHTML=repRows.map(r=>{const rt=byNameMonth(repTargets,r.name,monthKey(r.date))?.target||0; const yt=repTargets.filter(t=>t.name===r.name&&t.month.slice(0,4)===String(r.date).slice(0,4)).reduce((a,b)=>a+Number(b.target||0),0); const ys=repSales.filter(s=>s.name===r.name&&String(s.date).slice(0,4)===String(r.date).slice(0,4)&&s.date<=r.date).reduce((a,b)=>a+Number(b.sales_amount||0),0); return `<tr><td>${escapeHtml(r.name)}</td><td>${r.date}</td><td>${money(r.sales_amount)}</td><td>${money(rt)}</td><td>${pct(r.sales_amount,rt)}</td><td>${pct(ys,yt)}</td><td><button class="danger" data-del="rep:${r.id}">Delete</button></td></tr>`;}).join('')||'<tr><td colspan="7">No data</td></tr>'; $('venRecordsTable').querySelector('tbody').innerHTML=venRows.map(r=>{const rt=byNameMonth(venTargets,r.name,monthKey(r.date))?.target||0; const yt=venTargets.filter(t=>t.name===r.name&&t.month.slice(0,4)===String(r.date).slice(0,4)).reduce((a,b)=>a+Number(b.target||0),0); const ys=venSales.filter(s=>s.name===r.name&&String(s.date).slice(0,4)===String(r.date).slice(0,4)&&s.date<=r.date).reduce((a,b)=>a+Number(b.sales_amount||0),0); return `<tr><td>${escapeHtml(r.name)}</td><td>${r.date}</td><td>${money(r.sales_amount)}</td><td>${money(rt)}</td><td>${pct(r.sales_amount,rt)}</td><td>${pct(ys,yt)}</td><td><button class="danger" data-del="ven:${r.id}">Delete</button></td></tr>`;}).join('')||'<tr><td colspan="7">No data</td></tr>'; }
+function renderAll(){renderCards();renderCharts();renderSummaryTables();renderRecords();}
+async function upsertTarget(type,name,month,target){const table=type==='rep'?'rep_targets':'vendor_targets'; const payload={type,name,month,target:Number(target)}; const {error}=await supabase.from(table).upsert(payload,{onConflict:'name,month'}); if(error) throw error; }
+async function addDaily(type,name,date,salesAmount,target){ const table=type==='rep'?'rep_sales':'vendor_sales'; const payload={name,date,sales_amount:Number(salesAmount)}; const {error}=await supabase.from(table).upsert(payload,{onConflict:'name,date'}); if(error) throw error; if(target!==''&&target!=null&&!Number.isNaN(Number(target))) await upsertTarget(type,name,monthKey(date),target); }
+async function deleteRow(type,id){ const table=type==='rep'?'rep_sales':'vendor_sales'; const {error}=await supabase.from(table).delete().eq('id',id); if(error) throw error; }
+function parseFile(file){return new Promise((resolve,reject)=>{const ext=file.name.split('.').pop().toLowerCase(); if(ext==='csv'){Papa.parse(file,{header:true,skipEmptyLines:true,dynamicTyping:false,complete:r=>resolve(r.data),error:reject});} else {const reader=new FileReader(); reader.onload=e=>{try{const wb=XLSX.read(e.target.result,{type:'array'}); const ws=wb.Sheets[wb.SheetNames[0]]; resolve(XLSX.utils.sheet_to_json(ws,{defval:''}));}catch(err){reject(err)}}; reader.readAsArrayBuffer(file);} });}
+function normRow(r){const type=norm(r.type||r.category||'').toLowerCase(); const name=norm(r.name||r.rep||r.vendor||''); const date=norm(r.date||r.day||''); const salesAmount=Number(r.sales_amount||r.sales||r.amount||0)||0; const target=Number(r.target||r.target_amount||0); const month=norm(r.month||''); return {type,name,date,salesAmount,target,month};}
+function refreshFiltersAfterChange(){const months=unique([...repSales.map(r=>monthKey(r.date)),...venSales.map(r=>monthKey(r.date)),...repTargets.map(r=>r.month),...venTargets.map(r=>r.month)]); const names=unique([...repSales.map(r=>r.name),...venSales.map(r=>r.name),...repTargets.map(r=>r.name),...venTargets.map(r=>r.name)]); $('filterMonth').innerHTML=['<option value="All">All</option>',...months.map(m=>`<option value="${m}">${m}</option>`)].join(''); $('filterName').innerHTML=['<option value="All">All</option>',...names.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`)].join('');}
+function initTabs(){document.querySelectorAll('.tabs button').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active')); btn.classList.add('active'); ['dashboardView','entryView','targetsView','uploadView','recordsView'].forEach(id=>$(id).classList.add('hidden')); const v=btn.dataset.view; state.view=v; if(v==='dashboard')$('dashboardView').classList.remove('hidden'); if(v==='entry')$('entryView').classList.remove('hidden'); if(v==='targets')$('targetsView').classList.remove('hidden'); if(v==='upload')$('uploadView').classList.remove('hidden'); if(v==='records')$('recordsView').classList.remove('hidden');}));}
+async function boot(){initTabs(); $('entryDate').value=new Date().toISOString().slice(0,10); $('targetMonth').value=new Date().toISOString().slice(0,7); await loadAll().catch(async()=>{ repSales=[];venSales=[];repTargets=[];venTargets=[]; renderAll(); }); }
+$('resetFilters').addEventListener('click',()=>{$('filterMonth').value='All';$('filterType').value='All';$('filterName').value='All';$('searchBox').value=''; renderAll();});
+$('searchBox').addEventListener('input',renderAll); $('filterMonth').addEventListener('change',renderAll); $('filterType').addEventListener('change',renderAll); $('filterName').addEventListener('change',renderAll);
+$('addRecordBtn').addEventListener('click',async()=>{const type=$('entryType').value,name=norm($('entryName').value),date=$('entryDate').value,sales=Number($('entrySales').value),target=$('entryTarget').value; if(!name||!date||Number.isNaN(sales)){alert('Please complete name, date, and sales.'); return;} try{await addDaily(type,name,date,sales,target); await loadAll(); $('entryName').value='';$('entrySales').value='';$('entryTarget').value='';}catch(e){alert('Failed to save record: '+(e.message||e));}});
+$('saveTargetBtn').addEventListener('click',async()=>{const type=$('targetType').value,name=norm($('targetName').value),month=norm($('targetMonth').value),target=Number($('targetValue').value); if(!name||!month||Number.isNaN(target)){alert('Please complete target name, month and amount.'); return;} try{await upsertTarget(type,name,month,target); await loadAll(); $('targetName').value='';$('targetValue').value='';}catch(e){alert('Failed to save target: '+(e.message||e));}});
+$('processFileBtn').addEventListener('click',async()=>{const file=$('fileInput').files[0]; if(!file){alert('Choose a CSV or Excel file first.'); return;} try{const rows=await parseFile(file); const cleaned=[]; for(const row of rows){const r=normRow(row); if(!r.type||!r.name) continue; if(r.date){cleaned.push({kind:'sale',...r});} if(r.month&&r.target){cleaned.push({kind:'target',...r});}} $('previewWrap').innerHTML='Preview rows: '+cleaned.slice(0,10).map(x=>escapeHtml(JSON.stringify(x))).join('<br>'); for(const r of cleaned){ if(r.kind==='sale'){ if(r.type==='rep'||r.type==='vendor'){ await addDaily(r.type,r.name,r.date,r.salesAmount,r.target); } } else { if(r.type==='rep'||r.type==='vendor'){ await upsertTarget(r.type,r.name,r.month||monthKey(r.date),r.target); } } } await loadAll(); }catch(e){alert('Upload failed: '+(e.message||e));}});
+$('exportCsv').addEventListener('click',()=>{const rows=[['type','name','date','sales_amount'],...repSales.map(r=>['rep',r.name,r.date,r.sales_amount]),...venSales.map(r=>['vendor',r.name,r.date,r.sales_amount])]; const csv=rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(',')).join('\n'); const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download='sales_export.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);});
+$('loadSample').addEventListener('click',async()=>{const sample=[['rep','A. Mokoena','2026-05-01',12000,15000],['rep','A. Mokoena','2026-05-02',15000,15000],['rep','T. Naidoo','2026-05-01',8000,12000],['vendor','Vendor Delta','2026-05-01',22000,30000],['vendor','Vendor Delta','2026-05-02',18000,30000],['vendor','Vendor Alpha','2026-05-01',13000,14000]]; for(const [type,name,date,sales,target] of sample){await addDaily(type,name,date,sales,target);} await loadAll();});
+$('resetAll').addEventListener('click',async()=>{if(!confirm('Delete all rep and vendor data from Supabase?')) return; try{await Promise.all([supabase.from('rep_sales').delete().neq('id',0),supabase.from('vendor_sales').delete().neq('id',0),supabase.from('rep_targets').delete().neq('id',0),supabase.from('vendor_targets').delete().neq('id',0)]); await loadAll();}catch(e){alert('Reset failed: '+(e.message||e));}});
+document.getElementById('repRecordsTable').addEventListener('click',async e=>{const btn=e.target.closest('button[data-del]'); if(!btn) return; const [type,id]=btn.dataset.del.split(':'); try{await deleteRow(type,Number(id)); await loadAll();}catch(err){alert('Delete failed: '+(err.message||err));}});
+document.getElementById('venRecordsTable').addEventListener('click',async e=>{const btn=e.target.closest('button[data-del]'); if(!btn) return; const [type,id]=btn.dataset.del.split(':'); try{await deleteRow(type,Number(id)); await loadAll();}catch(err){alert('Delete failed: '+(err.message||err));}});
+boot();
+</script>
+</body>
+</html>'''
 
-/* --- 2. Local data model --- */
-let sales  = []; // { type, name, date, sales_amount }
-let targets = {}; // { 'rep:A. Mokoena:2026-04' => { target } }
-
-const $ = id => document.getElementById(id);
-const money = v => new Intl.NumberFormat(undefined, {maximumFractionDigits:0}).format(v||0);
-const pct = (a,b) => b ? ((a/b)*100).toFixed(1)+'%' : '0.0%';
-const norm = s => (s??'').toString().trim();
-const dateKey = s => {
-  const d = new Date(s);
-  if(!isNaN(d)) return d.toISOString().slice(0,10);
-  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-  return m ? `${m[1]}
+os.makedirs('output', exist_ok=True)
+path='output/index.html'
+with open(path,'w',encoding='utf-8') as f:
+    f.write(html)
+print(path, len(html))
